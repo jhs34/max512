@@ -1,0 +1,6 @@
+{
+  "name": "Net.DO MAX512 DMX Simulator",
+  "description": "High-fidelity Web DMX Stage Lighting Simulator emulating the Net.DO MAX512 console with HTP mixing, cross fades, manual overrides, and preset banks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
