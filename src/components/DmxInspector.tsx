@@ -31,12 +31,12 @@ export const DmxInspector: React.FC<DmxInspectorProps> = ({ dmxBuffer, engine, o
     if (fixtureIdx <= 12) {
       const prefix = `F${fixtureIdx} `;
       switch (channelOffset) {
-        case 1: return prefix + 'Mst';
+        case 1: return prefix + 'M';
         case 2: return prefix + 'R';
         case 3: return prefix + 'G';
         case 4: return prefix + 'B';
         case 5: return prefix + 'W';
-        case 6: return prefix + 'Str';
+        case 6: return prefix + 'S';
         default: return prefix + `ch${channelOffset}`;
       }
     }

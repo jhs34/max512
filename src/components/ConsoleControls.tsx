@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Sliders } from 'lucide-react';
+import { Zap, Sliders, Pencil, Check, X, Trash2 } from 'lucide-react';
 import {
   DMXChannelType,
   PresetMode,
@@ -15,6 +15,10 @@ interface ConsoleControlsProps {
   activeScenes: Set<string>;
   flashedScenes: Set<string>;
   activeChases: Map<string, any>;
+  isPresetReadOnly?: boolean;
+  onRenameScene?: (id: string, num: number, name: string) => void;
+  onRenameChase?: (id: string, num: number, name: string) => void;
+  onSavePreset?: () => void;
 }
 
 export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
@@ -23,13 +27,46 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
   selectedFixtureIds,
   activeScenes,
   flashedScenes,
-  activeChases
+  activeChases,
+  isPresetReadOnly = false,
+  onRenameScene,
+  onRenameChase,
+  onSavePreset
 }) => {
   const presetMode = engine.currentPresetMode;
   const bank = engine.currentBank;
   const [triggerMode, setTriggerMode] = useState<TriggerMode>(engine.currentTriggerMode);
   const [buttonType, setButtonType] = useState<ButtonType>(engine.currentButtonType);
   const [direction, setDirection] = useState<1 | -1>(engine.chaseDirection);
+
+  // States for renaming scenes and chases directly from Keypad Grid
+  const [isRenameModeActive, setIsRenameModeActive] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<{ type: 'scene' | 'chase'; num: number; id: string; initialName: string } | null>(null);
+  const [renameInputVal, setRenameInputVal] = useState('');
+
+  const handleSaveRename = () => {
+    if (!editingSlot) return;
+    const trimmed = renameInputVal.trim();
+    if (!trimmed) return;
+
+    if (editingSlot.type === 'scene') {
+      if (onRenameScene) {
+        onRenameScene(editingSlot.id, editingSlot.num, trimmed);
+      }
+    } else {
+      if (onRenameChase) {
+        onRenameChase(editingSlot.id, editingSlot.num, trimmed);
+      }
+    }
+    setEditingSlot(null);
+  };
+
+  // Turn off rename mode if user switches to FIXTURE mode, because fixture slots can't be renamed.
+  useEffect(() => {
+    if (presetMode === PresetMode.FIXTURE) {
+      setIsRenameModeActive(false);
+    }
+  }, [presetMode]);
 
   // Sync state variables from the engine
   useEffect(() => {
@@ -205,6 +242,29 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
       return;
     }
 
+    if (isRenameModeActive && isPressed) {
+      if (presetMode !== PresetMode.FIXTURE) {
+        const slotId = `${bank}${num}`;
+        let initialName = '';
+        if (presetMode === PresetMode.SCENE) {
+          const preset = engine.scenePresets.find(p => p.id === slotId);
+          initialName = preset ? preset.name : `Scene ${num}`;
+        } else {
+          const preset = engine.chasePresets.find(p => p.id === slotId);
+          initialName = preset ? preset.name : `Chase ${num}`;
+        }
+
+        setEditingSlot({
+          type: presetMode === PresetMode.SCENE ? 'scene' : 'chase',
+          num,
+          id: slotId,
+          initialName
+        });
+        setRenameInputVal(initialName);
+      }
+      return;
+    }
+
     if (presetMode === PresetMode.FIXTURE) {
       if (isPressed) {
         if (engine.selectedFixtureIds.has(num)) {
@@ -224,12 +284,12 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
   };
 
   const faders: { type: DMXChannelType; label: string; color: string }[] = [
-    { type: DMXChannelType.Master, label: 'MAS', color: 'bg-amber-500' },
-    { type: DMXChannelType.Red, label: 'RED', color: 'bg-red-500' },
-    { type: DMXChannelType.Green, label: 'GRN', color: 'bg-green-500' },
-    { type: DMXChannelType.Blue, label: 'BLU', color: 'bg-blue-500' },
-    { type: DMXChannelType.White, label: 'WHT', color: 'bg-slate-100 text-slate-900' },
-    { type: DMXChannelType.Strobe, label: 'STR', color: 'bg-zinc-200 text-black' },
+    { type: DMXChannelType.Master, label: 'M', color: 'bg-amber-500' },
+    { type: DMXChannelType.Red, label: 'R', color: 'bg-red-500' },
+    { type: DMXChannelType.Green, label: 'G', color: 'bg-green-500' },
+    { type: DMXChannelType.Blue, label: 'B', color: 'bg-blue-500' },
+    { type: DMXChannelType.White, label: 'W', color: 'bg-slate-100 text-slate-900' },
+    { type: DMXChannelType.Strobe, label: 'S', color: 'bg-zinc-200 text-black' },
   ];
 
   const isKeyLEDActive = (num: number): boolean => {
@@ -549,21 +609,39 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
                 </div>
 
                 {/* Row 2 Col 1: MODE (TriggerMode selector - replaces old TAP) */}
-                <div className={`flex flex-col items-center justify-center p-1 bg-[#cbbcb1]/20 rounded border border-[#a3927d]/20 transition-all ${presetMode !== PresetMode.CHASE ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                   <div className="text-xs font-black mb-1.5 text-center text-gray-800 uppercase tracking-tighter truncate w-full">MODE</div>
+                <div className={`flex flex-col items-center justify-center p-1 bg-[#cbbcb1]/20 rounded border border-[#a3927d]/20 transition-all ${!engine.isProgramMode && presetMode !== PresetMode.CHASE ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                   <div className="text-xs font-black mb-1.5 text-center text-gray-800 uppercase tracking-tighter truncate w-full">
+                     {engine.isProgramMode ? 'DELETE' : 'MODE'}
+                   </div>
                    <button 
-                     onClick={handleModeButtonClick}
-                     disabled={presetMode !== PresetMode.CHASE}
+                     onClick={() => {
+                       if (engine.isProgramMode) {
+                         engine.handleProgramStepDelete();
+                         onStateChange();
+                         if (onSavePreset) onSavePreset();
+                       } else {
+                         handleModeButtonClick();
+                       }
+                     }}
+                     disabled={!engine.isProgramMode && presetMode !== PresetMode.CHASE}
                      className={`w-10 h-10 rounded-full border-b-[3px] shadow-lg transition-all flex items-center justify-center ${
-                       presetMode === PresetMode.CHASE 
-                         ? 'bg-gradient-to-b from-[#4d3d2e] to-[#2c221a] text-amber-500 border-[#1c140f] active:translate-y-[2px] active:border-b-0 cursor-pointer hover:from-[#5e4b39]' 
-                         : 'bg-gray-600 border-gray-800 text-gray-400 cursor-not-allowed'
+                       engine.isProgramMode
+                         ? 'bg-gradient-to-b from-red-600 to-red-800 text-white border-red-900 active:translate-y-[2px] active:border-b-0 cursor-pointer hover:from-red-500'
+                         : presetMode === PresetMode.CHASE 
+                           ? 'bg-gradient-to-b from-[#4d3d2e] to-[#2c221a] text-amber-500 border-[#1c140f] active:translate-y-[2px] active:border-b-0 cursor-pointer hover:from-[#5e4b39]' 
+                           : 'bg-gray-600 border-gray-800 text-gray-400 cursor-not-allowed'
                      }`}
-                     title={presetMode === PresetMode.CHASE ? "Cycle tempo modes: Auto -> Swing" : "Only works in Chase Mode"}
+                     title={engine.isProgramMode ? "Delete currently selected step" : presetMode === PresetMode.CHASE ? "Cycle tempo modes: Auto -> Swing" : "Only works in Chase Mode"}
                    >
-                     <Zap className={`w-4 h-4 ${presetMode === PresetMode.CHASE ? 'text-amber-400 animate-pulse' : 'text-gray-400'}`} />
+                     {engine.isProgramMode ? (
+                       <Trash2 className="w-4 h-4 text-white" />
+                     ) : (
+                       <Zap className={`w-4 h-4 ${presetMode === PresetMode.CHASE ? 'text-amber-400 animate-pulse' : 'text-gray-400'}`} />
+                     )}
                    </button>
-                   <span className="text-[8px] sm:text-[10px] font-black text-gray-600 mt-1 uppercase truncate w-full text-center">{presetMode === PresetMode.CHASE ? triggerMode : 'BLOCKED'}</span>
+                   <span className="text-[8px] sm:text-[10px] font-black text-gray-600 mt-1 uppercase truncate w-full text-center">
+                     {engine.isProgramMode ? 'DEL STEP' : presetMode === PresetMode.CHASE ? triggerMode : 'BLOCKED'}
+                   </span>
                 </div>
 
                 {/* Row 2 Col 2: SWING L (STEP- in program mode) */}
@@ -893,9 +971,36 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
 
         {/* Right Side: Keypad Grid (With larger font numbers and keys) */}
         <div className="flex-1 flex flex-col gap-2 relative bg-[#d9cbb8] border border-[#a3927d] p-3 rounded-lg shadow-inner">
-           <div className="text-xs md:text-sm font-black text-[#333] uppercase tracking-wider mb-2 border-b border-[#a3927d]/40 pb-1.5">
-             Keypad Grid (Keys 1 - 15 + Key 16: CLEAR)
+           <div className="text-xs md:text-sm font-black text-[#333] uppercase tracking-wider mb-2 border-b border-[#a3927d]/40 pb-1.5 flex justify-between items-center">
+             <span>Keypad Grid (Keys 1 - 15 + Key 16: CLEAR)</span>
+             <button
+               onClick={() => setIsRenameModeActive(!isRenameModeActive)}
+               disabled={presetMode === PresetMode.FIXTURE}
+               className={`px-3 py-1 rounded text-xs font-black flex items-center gap-1.5 transition-all select-none border cursor-pointer ${
+                 isRenameModeActive 
+                   ? 'bg-[#ef4444] text-white border-red-700 shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse' 
+                   : presetMode === PresetMode.FIXTURE
+                   ? 'bg-gray-300 text-gray-500 border-gray-400 opacity-55 cursor-not-allowed'
+                   : 'bg-[#beaf9b] hover:bg-[#b5a590] text-gray-800 border-[#a3927d]'
+               }`}
+               title={presetMode === PresetMode.FIXTURE ? "Scene 이나 Chase 모드에서만 이름을 수정할 수 있습니다" : "이름 수정 모드 토글 (연필 버튼)"}
+             >
+               <Pencil className="w-3.5 h-3.5" />
+               <span>{isRenameModeActive ? '수정 중 (버튼 클릭)' : '이름 수정'}</span>
+             </button>
            </div>
+
+           {isRenameModeActive && (
+             <div className="bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold px-2.5 py-1.5 rounded mb-2 animate-fade-in flex items-center justify-between">
+               <span>✏️ 수정하고 싶은 씬(Scene) 또는 체이스(Chase) 키패드 버튼을 직접 누르세요.</span>
+               <button 
+                 onClick={() => setIsRenameModeActive(false)}
+                 className="text-amber-600 hover:text-amber-900 font-extrabold px-1 cursor-pointer"
+               >
+                 끄기
+               </button>
+             </div>
+           )}
            
            <div className="grid grid-cols-4 sm:grid-cols-8 gap-x-2.5 gap-y-3.5">
               {Array.from({ length: 16 }).map((_, i) => {
@@ -936,16 +1041,22 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
                           onTouchEnd={(e) => { e.preventDefault(); if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
                           onTouchCancel={(e) => { e.preventDefault(); if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
                           className={`w-full h-8 rounded-full border-b-[2px] shadow-md transition-all flex justify-center items-center ${
-                             isLEDOn 
+                             isRenameModeActive && !isClearKey
+                             ? 'bg-amber-900/40 border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)] animate-pulse hover:bg-amber-800/60 cursor-pointer'
+                             : isLEDOn 
                              ? 'bg-[#1e1e1e] border-black translate-y-[1px]' 
                              : isClearKey 
                              ? 'bg-[#ea580c] border-[#9a3412] text-white hover:bg-[#f97316]' 
                              : 'bg-[#404040] border-[#222222] hover:bg-[#333333]'
                           }`}
                           disabled={!isClearKey && presetMode === PresetMode.FIXTURE && !validFixture}
-                          title={isClearKey ? 'Clear All overrides and playbacks' : `Trigger Key ${keyNum}`}
+                          title={isRenameModeActive && !isClearKey ? `이름 수정: Key ${keyNum}` : isClearKey ? 'Clear All overrides and playbacks' : `Trigger Key ${keyNum}`}
                        >
-                          <div className={`w-2.5 h-2.5 rounded-full shadow-inner ${isLEDOn ? (isClearKey ? 'bg-orange-500 shadow-[0_0_8px_#f97316]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]') : 'bg-red-950'}`}></div>
+                          {isRenameModeActive && !isClearKey ? (
+                            <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                          ) : (
+                            <div className={`w-2.5 h-2.5 rounded-full shadow-inner ${isLEDOn ? (isClearKey ? 'bg-orange-500 shadow-[0_0_8px_#f97316]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]') : 'bg-red-950'}`}></div>
+                          )}
                        </button>
                        
                        <span className={`text-xs font-extrabold mt-1.5 text-center truncate w-full leading-none ${isClearKey ? 'text-red-700' : 'text-gray-700'}`} title={btnLabel}>
@@ -958,6 +1069,79 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
         </div>
 
       </div>
+
+      {/* Rename Dialog Modal */}
+      {editingSlot && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[999] flex items-center justify-center p-4">
+          <div className="bg-[#1c1a17] border-2 border-[#a3927d] rounded-xl w-full max-w-sm p-5 shadow-2xl space-y-4 animate-fade-in text-white">
+            <div className="flex justify-between items-center border-b border-zinc-850 pb-2">
+              <h3 className="text-sm font-black text-[#d9cbb8] uppercase tracking-wider flex items-center gap-1.5">
+                <Pencil className="w-4 h-4 text-amber-500" />
+                {editingSlot.type === 'scene' ? '🎬 Scene' : '⚡ Chase'} {editingSlot.id} 이름 수정
+              </h3>
+              <button 
+                onClick={() => setEditingSlot(null)}
+                className="text-zinc-500 hover:text-white transition-all p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {isPresetReadOnly ? (
+              <div className="space-y-3">
+                <p className="text-xs text-amber-500 leading-relaxed font-semibold bg-amber-500/10 border border-amber-500/25 p-2.5 rounded-lg">
+                  ⚠️ 기본 프리셋은 읽기 전용입니다. 이름을 변경하려면 먼저 오른쪽 상단(⚙️) 메뉴에서 "현재 설정으로 새 프리셋 만들기"를 통해 커스텀 프리셋을 생성하세요.
+                </p>
+                <div className="flex justify-end pt-1">
+                  <button
+                    onClick={() => setEditingSlot(null)}
+                    className="px-4 py-1.5 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 rounded text-xs font-black transition-all cursor-pointer"
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest block mb-1">새 이름 입력</label>
+                  <input
+                    type="text"
+                    value={renameInputVal}
+                    onChange={(e) => setRenameInputVal(e.target.value)}
+                    placeholder={editingSlot.initialName}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSaveRename();
+                      } else if (e.key === 'Escape') {
+                        setEditingSlot(null);
+                      }
+                    }}
+                    className="w-full bg-black border border-zinc-800 focus:border-[#d9cbb8] rounded px-3 py-2 text-xs focus:outline-none transition-all text-white font-bold"
+                  />
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-850">
+                  <button
+                    onClick={() => setEditingSlot(null)}
+                    className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white rounded text-xs font-black transition-all cursor-pointer"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={handleSaveRename}
+                    className="px-4 py-1.5 bg-[#d9cbb8] hover:bg-[#c3b4a1] text-slate-900 rounded text-xs font-black transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    저장
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -4,12 +4,12 @@
  */
 
 export enum DMXChannelType {
-  Master = 'Master',
-  Red = 'Red',
-  Green = 'Green',
-  Blue = 'Blue',
-  White = 'White',
-  Strobe = 'Strobe'
+  Master = 'M',
+  Red = 'R',
+  Green = 'G',
+  Blue = 'B',
+  White = 'W',
+  Strobe = 'S'
 }
 
 export interface Fixture {
@@ -45,6 +45,7 @@ export interface ScenePreset {
 }
 
 export interface ChaseStep {
+  stepNumber: number; // 1-based step index
   // Fixture index (1-12) -> Partial values
   fixtureValues: Record<number, Partial<Record<DMXChannelType, number>>>;
 }
@@ -63,4 +64,12 @@ export interface ChaseRuntime {
   elapsedTimeInStep: number; // in seconds
   speedPercent: number; // 0 to 100
   crossPercent: number; // 0 to 100
+}
+
+export interface AppPreset {
+  id: string;
+  name: string;
+  isReadOnly?: boolean;
+  scenePresets: ScenePreset[];
+  chasePresets: ChasePreset[];
 }

@@ -112,6 +112,34 @@ export class DmxSimulatorEngine {
   }
 
   /**
+   * Loads a set of scene and chase presets into the engine
+   */
+  public loadPresets(scenes: ScenePreset[], chases: ChasePreset[]): void {
+    this.scenePresets = JSON.parse(JSON.stringify(scenes));
+    this.chasePresets = JSON.parse(JSON.stringify(chases));
+
+    // Ensure every chase step has a valid stepNumber
+    for (const chase of this.chasePresets) {
+      if (chase.steps) {
+        for (let i = 0; i < chase.steps.length; i++) {
+          if (chase.steps[i].stepNumber === undefined) {
+            chase.steps[i].stepNumber = i + 1;
+          }
+        }
+      }
+    }
+
+    // Clear playback states to avoid residuals
+    this.activeScenes.clear();
+    this.flashedScenes.clear();
+    this.activeChases.clear();
+    this.selectedFixtureIds.clear();
+    this.manualOverrides = {};
+
+    this.updateFixtureOutputs();
+  }
+
+  /**
    * Calculates the TotalStepTime in seconds for a given speed%
    * Range: 0% -> 180s per step, 100% -> 0.03s per step.
    * Formula: TotalStepTime = 180 * (0.03 / 180)^(SpeedPercent / 100)
@@ -228,7 +256,9 @@ export class DmxSimulatorEngine {
 
         // Deep copy the manual configuration
         preset.fixtureValues = JSON.parse(JSON.stringify(this.manualOverrides));
-        preset.name = `Cust Scene ${number}`;
+        if (!preset.name || preset.name.startsWith('Cust Scene') || preset.name === '') {
+          preset.name = `Cust Scene ${number}`;
+        }
 
         // Automatically escape program mode
         this.isProgramMode = false;
@@ -306,7 +336,7 @@ export class DmxSimulatorEngine {
           this.loadStepToManualOverrides(0);
         } else {
           // Auto initialize step 1 for empty chase
-          this.programSteps = [{ fixtureValues: {} }];
+          this.programSteps = [{ stepNumber: 1, fixtureValues: {} }];
           this.programStepIndex = 0;
           this.manualOverrides = {};
         }
@@ -441,12 +471,14 @@ export class DmxSimulatorEngine {
   public toggleProgramMode(): void {
     if (this.isProgramMode) {
       // Exiting: Save steps
-      if (this.programChaseId && this.programSteps.length > 0) {
+      if (this.programChaseId) {
         const preset = this.chasePresets.find(p => p.id === this.programChaseId);
         if (preset) {
           preset.steps = JSON.parse(JSON.stringify(this.programSteps));
           // Change the name so it stands out on the keypad
-          preset.name = `Cust Chase ${preset.number}`;
+          if (!preset.name || preset.name.startsWith('Cust Chase') || preset.name === '') {
+            preset.name = `Cust Chase ${preset.number}`;
+          }
         }
       }
       this.isProgramMode = false;
@@ -488,7 +520,7 @@ export class DmxSimulatorEngine {
 
     if (this.programSteps.length === 0) {
       // Create first step!
-      this.programSteps.push({ fixtureValues: {} });
+      this.programSteps.push({ stepNumber: 1, fixtureValues: {} });
       this.programStepIndex = 0;
       this.selectedFixtureIds.clear();
       this.manualOverrides = {};
@@ -496,13 +528,49 @@ export class DmxSimulatorEngine {
       // At the end: Create a new step, copy the last step's look as baseline
       const prevStep = this.programSteps[this.programStepIndex];
       const newFixtureValues = JSON.parse(JSON.stringify(prevStep.fixtureValues));
-      this.programSteps.push({ fixtureValues: newFixtureValues });
+      this.programSteps.push({ stepNumber: this.programSteps.length + 1, fixtureValues: newFixtureValues });
       this.programStepIndex++;
       this.loadStepToManualOverrides(this.programStepIndex);
     } else {
       // In the middle: Just advance step index
       this.programStepIndex++;
       this.loadStepToManualOverrides(this.programStepIndex);
+    }
+    this.updateFixtureOutputs();
+  }
+
+  /**
+   * Deletes the currently selected step in Program Mode
+   */
+  public handleProgramStepDelete(): void {
+    if (!this.isProgramMode || !this.programChaseId) return;
+    if (this.programSteps.length === 0) return;
+
+    if (this.programSteps.length > 1) {
+      // Remove current step
+      this.programSteps.splice(this.programStepIndex, 1);
+      // Re-number steps
+      for (let i = 0; i < this.programSteps.length; i++) {
+        this.programSteps[i].stepNumber = i + 1;
+      }
+      // Adjust step index if out of bounds
+      if (this.programStepIndex >= this.programSteps.length) {
+        this.programStepIndex = this.programSteps.length - 1;
+      }
+      this.loadStepToManualOverrides(this.programStepIndex);
+    } else {
+      // Only 1 step was present, now it becomes empty
+      this.programSteps = [];
+      this.programStepIndex = -1;
+      this.manualOverrides = {};
+
+      // Delete the saved Chase Preset if steps are 0
+      const chaseId = this.programChaseId;
+      this.chasePresets = this.chasePresets.filter(p => p.id !== chaseId);
+      this.activeChases.delete(chaseId);
+
+      // Reset program chase selection
+      this.programChaseId = null;
     }
     this.updateFixtureOutputs();
   }
@@ -549,18 +617,29 @@ export class DmxSimulatorEngine {
     channel: DMXChannelType
   ): number {
     const steps = preset.steps;
-    if (steps.length === 0) return 0;
+    if (!steps || steps.length === 0) return 0;
     if (steps.length === 1) {
-      return steps[0].fixtureValues[fixtureId]?.[channel] ?? 0;
+      return steps[0]?.fixtureValues?.[fixtureId]?.[channel] ?? 0;
     }
 
-    const currentStep = steps[runtime.currentStepIndex];
-    // Find former step based on direction
-    const formerStepIndex = (runtime.currentStepIndex - this.chaseDirection + steps.length) % steps.length;
-    const formerStep = steps[formerStepIndex];
+    let currentIdx = runtime.currentStepIndex;
+    if (currentIdx >= steps.length || currentIdx < 0) {
+      currentIdx = 0;
+      runtime.currentStepIndex = 0;
+    }
 
-    const valCurrent = currentStep.fixtureValues[fixtureId]?.[channel] ?? 0;
-    const valFormer = formerStep.fixtureValues[fixtureId]?.[channel] ?? 0;
+    const currentStep = steps[currentIdx];
+    if (!currentStep) return 0;
+
+    // Find former step based on direction
+    const formerStepIndex = ((currentIdx - this.chaseDirection) % steps.length + steps.length) % steps.length;
+    const formerStep = steps[formerStepIndex];
+    if (!formerStep) {
+      return currentStep.fixtureValues?.[fixtureId]?.[channel] ?? 0;
+    }
+
+    const valCurrent = currentStep.fixtureValues?.[fixtureId]?.[channel] ?? 0;
+    const valFormer = formerStep.fixtureValues?.[fixtureId]?.[channel] ?? 0;
 
     // Speeds/Cross mathematics (Auto mode logic)
     const totalStepTime = this.currentTriggerMode === TriggerMode.Swing 
