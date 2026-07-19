@@ -1022,6 +1022,9 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
                    btnLabel = keyNum <= 12 ? `F${keyNum}` : `Aux ${keyNum}`;
                  }
 
+                 const isFlashMode = !isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE;
+                 const canTrigger = isClearKey || validFixture || presetMode !== PresetMode.FIXTURE;
+
                  return (
                     <div key={keyNum} className="flex flex-col items-center">
                        <div className="flex items-center justify-center mb-1.5 w-full">
@@ -1034,12 +1037,12 @@ export const ConsoleControls: React.FC<ConsoleControlsProps> = ({
                        </div>
                        
                        <button 
-                          onMouseDown={() => { if(isClearKey || validFixture || presetMode !== PresetMode.FIXTURE) handleNumberKey(keyNum, true) }}
-                          onMouseUp={() => { if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
-                          onMouseLeave={() => { if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
-                          onTouchStart={(e) => { e.preventDefault(); if(isClearKey || validFixture || presetMode !== PresetMode.FIXTURE) handleNumberKey(keyNum, true) }}
-                          onTouchEnd={(e) => { e.preventDefault(); if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
-                          onTouchCancel={(e) => { e.preventDefault(); if (!isClearKey && engine.currentButtonType === ButtonType.FLASH && presetMode === PresetMode.SCENE) handleNumberKey(keyNum, false); }}
+                          onPointerDown={isFlashMode ? (e) => { if (e.button === 0 && canTrigger) handleNumberKey(keyNum, true) } : undefined}
+                          onPointerUp={isFlashMode ? (e) => { if (e.button === 0) handleNumberKey(keyNum, false) } : undefined}
+                          onPointerLeave={isFlashMode ? () => { handleNumberKey(keyNum, false) } : undefined}
+                          onPointerCancel={isFlashMode ? () => { handleNumberKey(keyNum, false) } : undefined}
+                          onClick={!isFlashMode ? () => { if (canTrigger) handleNumberKey(keyNum, true) } : undefined}
+                          style={{ touchAction: isFlashMode ? 'none' : 'auto' }}
                           className={`w-full h-8 rounded-full border-b-[2px] shadow-md transition-all flex justify-center items-center ${
                              isRenameModeActive && !isClearKey
                              ? 'bg-amber-900/40 border-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)] animate-pulse hover:bg-amber-800/60 cursor-pointer'
